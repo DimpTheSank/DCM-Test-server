@@ -1,4 +1,7 @@
 streamlit
-firebase-admin
 pandas
+firebase-admin
+google-cloud-firestore
 openpyxl
+altair
+requests
