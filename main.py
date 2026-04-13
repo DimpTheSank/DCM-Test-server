@@ -86,12 +86,19 @@ def get_notes(u_acc, ex_id):
     notes = {}
     try:
         prefix = f"{u_acc}_{ex_id}_"
+        # Truy vấn các document có ID bắt đầu bằng prefix
         docs = db.collection('notes').where(firestore.FieldPath.document_id(), '>=', prefix).where(firestore.FieldPath.document_id(), '<=', prefix + '\uf8ff').stream()
+        
         for doc in docs:
-            gid_str = doc.id.split('_')[-1]
-            if gid_str.isdigit() or gid_str != "":
-                notes[gid_str] = doc.to_dict().get('content', "")
-    except: pass
+            # Cách lấy gid_str chuẩn: Xóa phần prefix trong ID document, phần còn lại chính là g_id
+            gid_str = doc.id.replace(prefix, "")
+            # Lưu vào dict: Key là string (ví dụ "1"), Value là nội dung ghi chú
+            notes[gid_str] = doc.to_dict().get('content', "")
+            
+        # Debug nhỏ (chỉ hiện trong Logs hệ thống, không hiện lên web)
+        print(f"--- Nạp Note cho {ex_id}: Tìm thấy {len(notes)} ghi chú ---")
+    except Exception as e:
+        print(f"Lỗi nạp ghi chú: {e}")
     return notes
 
 # --- 5. QUẢN LÝ SESSION & CALLBACKS ---
@@ -296,12 +303,22 @@ def student_page():
             if curr_aud != "" and curr_aud != last_aud: display_drive_audio(curr_aud); last_aud = curr_aud
             
             # --- Ô GHI CHÚ VỊ TRÍ TRÊN CÙNG ---
-            curr_note = st.session_state.user_notes.get(str(g_id), "") # Luôn ép về string
-            note_input = st.text_area("📝 Ghi chú - nhấn ra ngoài để lưu:", value=curr_note, key=f"note_{g_id}", height=150, max_chars=500)
+            # 1. Lấy note cũ từ session_state (ép g_id về string vì Firebase ID là string)
+            curr_note = st.session_state.user_notes.get(str(g_id), "") 
+            
+            # 2. Gán vào text_area thông qua tham số 'value'
+            note_input = st.text_area(
+                "📝 Ghi chú / Chiến thuật (Tự động lưu):", 
+                value=curr_note, 
+                key=f"note_area_{g_id}", # Key phải duy nhất cho mỗi nhóm
+                height=150
+            )
+            
+            # 3. Nếu học sinh gõ mới, cập nhật ngược lại session_state và Firebase
             if note_input != curr_note:
-                st.session_state.user_notes[str(g_id)] = note_input
-                save_note(u_acc, st.session_state.current_ex_id, g_id, note_input)
-                st.toast("Đã lưu ghi chú!", icon="💾")
+                st.session_state.user_notes[str(g_id)] = note_input # Lưu tạm vào session để rerun không bị mất
+                save_note(u_acc, st.session_state.current_ex_id, g_id, note_input) # Lưu vĩnh viễn
+                st.toast("Đã ghi sổ tay!", icon="✍️")
             
             ctx = clean_nan(first.get('context'))
             l, r_col = st.columns([1, 1])
