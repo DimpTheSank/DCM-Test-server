@@ -89,14 +89,13 @@ def get_notes(u_acc, ex_id):
     notes = {}
     try:
         prefix = f"{u_acc}_{ex_id}_"
-        # Truy vấn các Note có ID bắt đầu bằng prefix
         docs = db.collection('notes').where(firestore.FieldPath.document_id(), '>=', prefix).where(firestore.FieldPath.document_id(), '<=', prefix + '\uf8ff').stream()
         for doc in docs:
-            # Lấy chính xác phần g_id bằng cách cắt bỏ phần prefix
-            gid_key = doc.id[len(prefix):]
-            notes[gid_key] = doc.to_dict().get('content', "")
+            # Lấy phần cuối cùng sau dấu gạch dưới cuối cùng
+            gid_str = doc.id.split('_')[-1]
+            notes[gid_str] = doc.to_dict().get('content', "")
     except Exception as e:
-        st.error(f"Lỗi nạp ghi chú: {e}")
+        print(f"Lỗi nạp ghi chú: {e}")
     return notes
 
 # --- 5. QUẢN LÝ CALLBACKS ---
@@ -117,24 +116,40 @@ def start_lesson_callback(ex, ex_id):
         st.session_state.current_df = df
         st.session_state.current_ex_info = ex
         st.session_state.current_ex_id = ex_id
+        st.session_state.view_mode = 'quiz'
+        
         acc = st.session_state.user['account']
         st.session_state.user_answers = get_draft(acc, ex_id)
-        # Nạp ghi chú cũ ngay lập tức
-        st.session_state.user_notes = get_notes(acc, ex_id)
-        st.session_state.view_mode = 'quiz'
-    except Exception as e: st.error(f"Lỗi nạp bài tập: {e}")
+        
+        # 1. Nạp Note từ Firebase
+        fetched_notes = get_notes(acc, ex_id)
+        st.session_state.user_notes = fetched_notes
+        
+        # 2. "TIÊM" VÀO SESSION STATE CỦA WIDGET (Quan trọng nhất)
+        for gid, content in fetched_notes.items():
+            widget_key = f"note_quiz_{ex_id}_{gid}"
+            st.session_state[widget_key] = content
+            
+    except Exception as e:
+        st.error(f"Lỗi nạp bài: {e}")
 
 def start_review_direct_callback(ex, ex_id, history):
     try:
         df = pd.read_excel(get_drive_url(ex['excel_link']))
         df.columns = [str(c).strip().lower() for c in df.columns]
-        st.session_state.current_df = df
-        st.session_state.current_ex_info = ex
-        st.session_state.current_ex_id = ex_id
+        st.session_state.current_df, st.session_state.current_ex_info, st.session_state.current_ex_id = df, ex, ex_id
+        
         latest_sub = max(history, key=lambda x: x['submitted_at'])
         st.session_state.user_answers = {int(k): v for k, v in latest_sub.get('user_answers', {}).items()}
-        # Nạp ghi chú để xem lại
-        st.session_state.user_notes = get_notes(st.session_state.user['account'], ex_id)
+        
+        # Nạp và tiêm Note cho trang Review
+        acc = st.session_state.user['account']
+        fetched_notes = get_notes(acc, ex_id)
+        st.session_state.user_notes = fetched_notes
+        for gid, content in fetched_notes.items():
+            widget_key = f"note_rev_{ex_id}_{gid}" # Key cho trang review
+            st.session_state[widget_key] = content
+            
         st.session_state.view_mode = 'review'
     except Exception as e: st.error(f"Lỗi nạp Review: {e}")
 
@@ -307,11 +322,16 @@ def student_page():
             # Lấy nội dung note từ user_notes đã nạp trong callback
             curr_note = st.session_state.user_notes.get(gid_key if 'gid_key' in locals() else gid_str, "")
             
-            # Nếu Thầy dùng bản mới này, key sẽ rất đặc thù để tránh bị đè
-            note_input = st.text_area("📝 Ghi chú / Chiến thuật (Tự động lưu):", value=curr_note, key=f"note_quiz_{st.session_state.current_ex_id}_{gid_str}", height=150, max_chars=500)
+            note_input = st.text_area(
+                "📝 Ghi chú / Chiến thuật (Tự động lưu):", 
+                key=f"note_quiz_{st.session_state.current_ex_id}_{str(g_id)}", # Bỏ tham số value
+                height=150, 
+                max_chars=500
+            )
             
-            if note_input != curr_note:
-                st.session_state.user_notes[gid_str] = note_input
+            # Chỉ lưu lên Firebase nếu nội dung thực sự thay đổi so với bản đã nạp
+            if note_input != st.session_state.user_notes.get(str(g_id), ""):
+                st.session_state.user_notes[str(g_id)] = note_input
                 save_note(u_acc, st.session_state.current_ex_id, g_id, note_input)
                 st.toast("Đã ghi sổ tay!", icon="💾")
             
