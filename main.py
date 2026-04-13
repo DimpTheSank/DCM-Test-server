@@ -326,10 +326,9 @@ def teacher_page():
                                     st.success("✅ Tất cả các bạn đều làm đúng câu này!")
 
 def student_page():
-    # --- ĐIỀU CHỈNH SIDEBAR: THÊM NÚT THOÁT TIỆN LỢI ---
+    # --- 1. SIDEBAR: NÚT THOÁT TIỆN LỢI ---
     with st.sidebar:
         st.button("🔴 Đăng xuất", on_click=logout, use_container_width=True)
-        # Nếu đang ở Quiz hoặc Review thì hiện thêm nút thoát về danh sách
         if st.session_state.view_mode in ['quiz', 'review', 'res']:
             st.divider()
             if st.button("⬅ Thoát bài tập", use_container_width=True, type="primary"):
@@ -340,6 +339,7 @@ def student_page():
     st.title(f"👋 Xin chào, {st.session_state.user.get('full_name', 'Học viên')}!")
     st.divider()
 
+    # --- 2. TRANG DANH SÁCH BÀI TẬP ---
     if st.session_state.view_mode == 'list':
         all_subs = [s.to_dict() for s in db.collection('submissions').where('student_email', '==', u_account).stream()]
         exs_stream = db.collection('exercises').where('assigned_to', 'array_contains', u_account).stream()
@@ -374,9 +374,9 @@ def student_page():
                     if history and ex.get('review_permissions', {}).get(u_account, False):
                         st.button("Xem lại 🧐", key=f"rev_{ex_id}", on_click=start_review_direct_callback, args=(ex, ex_id, history), use_container_width=True)
 
+    # --- 3. TRANG LÀM BÀI (QUIZ) ---
     elif st.session_state.view_mode == 'quiz':
         st.subheader(f"✍️ {st.session_state.current_ex_info['title']}")
-        # Nút thoát ở nội dung bài (Vẫn giữ để học sinh thấy ngay trước mắt)
         if st.button("⬅ Thoát (Tự động lưu bài)", key="top_exit_quiz"): 
             st.session_state.view_mode = 'list'
             st.rerun()
@@ -420,12 +420,48 @@ def student_page():
             st.divider()
 
         if st.button("Nộp bài 🏁", use_container_width=True, type="primary"):
-            correct = sum(1 for i, r in df.iterrows() if {clean_nan(r.get('opt_a')):'A', clean_nan(r.get('opt_b')):'B', clean_nan(r.get('opt_c')):'C', clean_nan(r.get('opt_d')):'D'}.get(st.session_state.user_answers.get(i)) == str(r.get('correct_ans','')).strip().upper())
+            # Tính điểm chính xác
+            correct = 0
+            for i, r in df.iterrows():
+                mapping = {clean_nan(r.get('opt_a')):'A', clean_nan(r.get('opt_b')):'B', clean_nan(r.get('opt_c')):'C', clean_nan(r.get('opt_d')):'D'}
+                if mapping.get(st.session_state.user_answers.get(i)) == str(r.get('correct_ans','')).strip().upper():
+                    correct += 1
+            
             st.session_state.res = f"{correct}/{len(df)}"
-            db.collection('submissions').add({'student_email':u_account, 'exercise_title':st.session_state.current_ex_info['title'], 'score_raw':st.session_state.res, 'user_answers': {str(k): v for k, v in st.session_state.user_answers.items()}, 'submitted_at':datetime.now()})
+            db.collection('submissions').add({
+                'student_email': u_account, 
+                'exercise_title': st.session_state.current_ex_info['title'], 
+                'score_raw': st.session_state.res, 
+                'user_answers': {str(k): v for k, v in st.session_state.user_answers.items()}, 
+                'submitted_at': datetime.now()
+            })
             delete_draft(u_account, st.session_state.current_ex_id)
-            st.session_state.view_mode = 'res'; st.rerun()
+            st.session_state.view_mode = 'res'
+            st.rerun()
 
+    # --- 4. TRANG KẾT QUẢ (PHẦN THIẾU CỦA THẦY) ---
+    elif st.session_state.view_mode == 'res':
+        n, t = map(int, st.session_state.res.split('/'))
+        st.balloons()
+        with st.container(border=True):
+            st.markdown(f"""
+                <div style="text-align: center; padding: 20px;">
+                    <h1 style="color: #1565c0; font-size: 45px;">🎉 HOÀN THÀNH BÀI TẬP!</h1>
+                    <p style="font-size: 20px; color: #555;">Kết quả của bạn:</p>
+                    <h1 style="font-size: 70px; color: #28a745; margin: 10px 0;">{n} / {t}</h1>
+                    <h2 style="color: #1565c0;">({n*5} / {t*5} điểm)</h2>
+                </div>
+            """, unsafe_allow_html=True)
+            st.divider()
+            c1, c2 = st.columns(2)
+            if c1.button("XEM LẠI ĐÁP ÁN (REVIEW)", use_container_width=True):
+                st.session_state.view_mode = 'review'
+                st.rerun()
+            if c2.button("QUAY LẠI TRANG CHỦ", use_container_width=True):
+                st.session_state.view_mode = 'list'
+                st.rerun()
+
+    # --- 5. TRANG REVIEW ĐÁP ÁN ---
     elif st.session_state.view_mode == 'review':
         st.title("🧐 Review đáp án chi tiết")
         if st.button("⬅ Quay lại danh sách", key="top_exit_rev"): 
@@ -472,7 +508,6 @@ def student_page():
                             else: st.markdown(f'<div class="normal-box">{let}. {txt}</div>', unsafe_allow_html=True)
                         st.write("---")
         st.button("XONG", on_click=lambda: st.session_state.update({"view_mode":"list"}), use_container_width=True)
-
 # --- 7. ĐIỀU HƯỚNG ---
 if st.session_state.user is None: login_page()
 else: teacher_page() if st.session_state.user.get('role') == 'teacher' else student_page()
