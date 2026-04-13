@@ -184,7 +184,114 @@ def login_page():
 def teacher_page():
     st.sidebar.button("Đăng xuất", on_click=logout)
     st.title("👨‍🏫 Quản lý Học viên")
-    # ... (Giữ nguyên code Tab giáo viên của thầy)
+    t1, t2, t3 = st.tabs(["📤 Giao bài", "👥 Quản lý", "📊 Thống kê"])
+    
+    # ... (Giữ nguyên Tab 1 và Tab 2 của Thầy) ...
+
+    with t3:
+        all_users = {u.id: u.to_dict().get('full_name', u.id) for u in db.collection('users').stream()}
+        chosen = st.multiselect("Chọn nhóm học sinh:", list(all_users.keys()))
+        if chosen:
+            student_ex_lists = []
+            for acc in chosen:
+                exs = db.collection('exercises').where('assigned_to', 'array_contains', acc).stream()
+                student_ex_lists.append({doc.to_dict()['title'] for doc in exs})
+            common = list(set.intersection(*student_ex_lists)) if student_ex_lists else []
+            
+            if common:
+                sel_title = st.selectbox("Chọn bài tập:", ["-- Chọn bài tập --"] + common)
+                if sel_title != "-- Chọn bài tập --":
+                    ex_doc = db.collection('exercises').where('title', '==', sel_title).limit(1).get()[0]
+                    df_ex = pd.read_excel(get_drive_url(ex_doc.to_dict()['excel_link']))
+                    df_ex.columns = [str(c).strip().lower() for c in df_ex.columns]
+                    
+                    all_s = db.collection('submissions').where('exercise_title', '==', sel_title).stream()
+                    data_map = {acc: [] for acc in chosen}
+                    for s in all_s:
+                        d = s.to_dict()
+                        if d['student_email'] in chosen:
+                            try:
+                                n, t = map(int, d.get('score_raw', '0/0').split('/'))
+                                d['calculated_score'] = n * 5
+                            except: d['calculated_score'] = 0
+                            data_map[d['student_email']].append(d)
+                    
+                    summary, wrong_stats = [], {i: set() for i in range(len(df_ex))}
+                    for acc in chosen:
+                        subs = data_map[acc]
+                        if subs:
+                            scores = [s['calculated_score'] for s in subs]
+                            summary.append({'Học sinh': all_users.get(acc, acc), 'Thấp nhất': min(scores), 'Cao nhất': max(scores)})
+                            latest = max(subs, key=lambda x: x['submitted_at'])
+                            ans_dict = latest.get('user_answers', {})
+                            for i, row in df_ex.iterrows():
+                                ck = str(row.get('correct_ans', '')).strip().upper()
+                                mapping = {clean_nan(row.get('opt_a')):'A', clean_nan(row.get('opt_b')):'B', clean_nan(row.get('opt_c')):'C', clean_nan(row.get('opt_d')):'D'}
+                                if mapping.get(ans_dict.get(str(i))) != ck:
+                                    wrong_stats[i].add(all_users.get(acc, acc))
+
+                    if summary:
+                        # --- PHẦN BIỂU ĐỒ (Giữ nguyên) ---
+                        df_s = pd.DataFrame(summary)
+                        max_p = len(df_ex) * 5
+                        st.markdown(f"#### 📊 Thống kê điểm số (Tối đa: {max_p})")
+                        c_l, c_h = st.columns(2)
+                        c_l.altair_chart(alt.Chart(df_s).mark_bar(color='#90caf9').encode(x='Học sinh:N', y=alt.Y('Thấp nhất:Q', scale=alt.Scale(domain=[0, max_p]))), use_container_width=True)
+                        c_h.altair_chart(alt.Chart(df_s).mark_bar(color='#1565c0').encode(x='Học sinh:N', y=alt.Y('Cao nhất:Q', scale=alt.Scale(domain=[0, max_p]))), use_container_width=True)
+                        
+                        # --- ĐIỀU CHỈNH MỚI: PHÂN TÍCH CHI TIẾT TẤT CẢ CÁC CÂU ---
+                        st.markdown("---")
+                        st.markdown("#### 🎯 Chi tiết đề bài & Đáp án")
+                        
+                        col_list, col_detail = st.columns([1, 2.5])
+                        
+                        with col_list:
+                            # Hiện tất cả các câu từ 1 đến hết
+                            q_menu = []
+                            for i in range(len(df_ex)):
+                                error_count = len(wrong_stats[i])
+                                status = f" ({error_count} ❌)" if error_count > 0 else " (✅)"
+                                q_menu.append(f"Câu {i+1}{status}")
+                            
+                            selected_q = st.radio("Chọn câu để xem:", q_menu, label_visibility="collapsed")
+                            idx = int(selected_q.split(" ")[1].replace("(", "")) - 1
+
+                        with col_detail:
+                            r = df_ex.iloc[idx]
+                            with st.container(border=True):
+                                # 1. Audio
+                                if 'audio' in df_ex.columns and clean_nan(r.get('audio')) != " ":
+                                    display_drive_audio(r.get('audio'))
+                                
+                                # 2. Context (Hình ảnh / Văn bản)
+                                ctx = clean_nan(r.get('context'))
+                                if ctx != " ":
+                                    for p in ctx.split(";;"):
+                                        if p.strip().startswith("http"): display_drive_image(p.strip())
+                                        else: st.markdown(f"*{p.strip()}*")
+                                
+                                # 3. Câu hỏi
+                                st.markdown(f"**Câu {idx+1}: {clean_nan(r.get('question'))}**")
+                                
+                                # 4. HIỂN THỊ ĐẦY ĐỦ ĐÁP ÁN A, B, C, D
+                                ck_letter = str(r.get('correct_ans')).strip().upper()
+                                for let in ['A', 'B', 'C', 'D']:
+                                    opt_text = clean_nan(r.get(f'opt_{let.lower()}'))
+                                    if opt_text != " " and opt_text.upper() != "NONE":
+                                        if let == ck_letter:
+                                            st.markdown(f'<div class="correct-box"><b>{let}. {opt_text}</b> (Đáp án đúng)</div>', unsafe_allow_html=True)
+                                        else:
+                                            st.markdown(f'<div class="normal-box">{let}. {opt_text}</div>', unsafe_allow_html=True)
+                                
+                                # 5. Transcript (nếu có)
+                                if 'transcript' in df_ex.columns and clean_nan(r.get('transcript')) != " ":
+                                    st.markdown(f'<div class="transcript-box">📝 <b>Transcript:</b><br>{clean_nan(r.get("transcript"))}</div>', unsafe_allow_html=True)
+                                
+                                # 6. Danh sách học sinh sai
+                                if wrong_stats[idx]:
+                                    st.error(f"❌ Các bạn làm sai: {', '.join(wrong_stats[idx])}")
+                                else:
+                                    st.success("✅ Tất cả các bạn đều làm đúng câu này!")
 
 def student_page():
     # --- ĐIỀU CHỈNH SIDEBAR: THÊM NÚT THOÁT TIỆN LỢI ---
