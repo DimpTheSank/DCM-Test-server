@@ -1,7 +1,6 @@
 import streamlit as st
 import firebase_admin
 from firebase_admin import credentials, firestore
-from google.cloud.firestore import FieldPath  # Sửa lỗi truy cập ghi chú cũ
 import pandas as pd
 import re
 import requests
