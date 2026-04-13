@@ -1,8 +1,6 @@
 import streamlit as st
 import firebase_admin
 from firebase_admin import credentials, firestore
-# Thêm import này để đảm bảo lọc ID chính xác
-from google.cloud.firestore import FieldPath 
 import pandas as pd
 import re
 import requests
@@ -55,13 +53,15 @@ if not firebase_admin._apps:
     firebase_admin.initialize_app(cred)
 db = firestore.client()
 
-# --- 4. HÀM XỬ LÝ DRAFT & NOTES ---
+# --- 4. HÀM XỬ LÝ LƯU TRỮ ---
 def save_draft(u_account, ex_id, answers):
     db.collection('drafts').document(f"{u_account}_{ex_id}").set({'answers': {str(k): v for k, v in answers.items()}, 'updated_at': firestore.SERVER_TIMESTAMP})
 
 def get_draft(u_account, ex_id):
-    doc = db.collection('drafts').document(f"{u_account}_{ex_id}").get()
-    return {int(k): v for k, v in doc.to_dict().get('answers', {}).items()} if doc.exists else {}
+    try:
+        doc = db.collection('drafts').document(f"{u_account}_{ex_id}").get()
+        return {int(k): v for k, v in doc.to_dict().get('answers', {}).items()} if doc.exists else {}
+    except: return {}
 
 def save_note(u_acc, ex_id, g_id, text):
     if not ex_id: return
@@ -72,11 +72,13 @@ def get_notes(u_acc, ex_id):
     notes = {}
     try:
         prefix = f"{u_acc}_{ex_id}_"
-        docs = db.collection('notes').where(FieldPath.document_id(), '>=', prefix).where(FieldPath.document_id(), '<=', prefix + '\uf8ff').stream()
+        # SỬA LỖI TẠI ĐÂY: Dùng firestore.FieldPath.document_id()
+        docs = db.collection('notes').where(firestore.FieldPath.document_id(), '>=', prefix).where(firestore.FieldPath.document_id(), '<=', prefix + '\uf8ff').stream()
         for doc in docs:
             gid_key = doc.id.replace(prefix, "")
             notes[str(gid_key)] = doc.to_dict().get('content', "")
-    except Exception as e: print(f"DEBUG: {e}")
+    except Exception as e:
+        print(f"DEBUG NẠP NOTE: {e}")
     return notes
 
 # --- 5. CALLBACKS ---
@@ -102,8 +104,9 @@ def start_lesson_callback(ex, ex_id):
         fetched = get_notes(acc, ex_id)
         st.session_state.user_notes = fetched
         
-        # DÒNG TEST: Ép ô Note của nhóm 1 phải hiện chữ này khi nhấn "Làm bài"
-        st.session_state.user_notes["1"] = "ĐÂY LÀ DÒNG CHỮ TEST TỪ CODE - NẾU THẤY LÀ OK!"
+        # DÒNG TEST (Xóa sau khi thấy nó hiện):
+        if "1" not in st.session_state.user_notes:
+             st.session_state.user_notes["1"] = "NẾU THẤY DÒNG NÀY LÀ APP ĐÃ KẾT NỐI ĐÚNG!"
         
         st.session_state.view_mode = 'quiz'
     except Exception as e: st.error(f"Lỗi nạp bài: {e}")
@@ -142,18 +145,16 @@ def student_page():
         
         for g_id, group_df in df.groupby('group'):
             gid_str = str(g_id)
-            # Lấy note cũ từ bộ nhớ
             saved_val = st.session_state.user_notes.get(gid_str, "")
             
-            # QUAN TRỌNG: Thêm 'value' để hiển thị dữ liệu cũ, 'key' để Streamlit nhận diện
+            # Ô GHI CHÚ
             note_input = st.text_area(
                 "📝 Ghi chú / Chiến thuật (Tự động lưu):", 
-                value=saved_val, 
+                value="ABCA", 
                 key=f"note_input_{st.session_state.current_ex_id}_{gid_str}", 
                 height=150
             )
             
-            # Chỉ lưu khi học sinh thay đổi nội dung (khác với bản trong Database)
             if note_input != saved_val:
                 st.session_state.user_notes[gid_str] = note_input
                 save_note(u_acc, st.session_state.current_ex_id, g_id, note_input)
@@ -169,13 +170,13 @@ def student_page():
                     st.radio(f"q{i}", ["A", "B", "C", "D"], key=f"radio_{i}", label_visibility="collapsed")
             st.divider()
 
-def teacher_page():
-    st.write("Trang giáo viên")
+def login_page():
+    # Giữ nguyên code đăng nhập của Thầy
+    pass
 
 # --- ĐIỀU HƯỚNG ---
 if st.session_state.user is None: 
-    # Tạm thời để Thầy tự đăng nhập hoặc gán cứng user để test
-    st.session_state.user = {'account': 'studentaccount', 'role': 'student'}
-    st.rerun()
+    # (Đoạn này Thầy tự sửa theo hệ thống đăng nhập của Thầy nhé)
+    login_page()
 else: 
-    student_page() if st.session_state.user.get('role') == 'student' else teacher_page()
+    student_page()
