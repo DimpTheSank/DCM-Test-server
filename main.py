@@ -86,19 +86,11 @@ def get_notes(u_acc, ex_id):
     notes = {}
     try:
         prefix = f"{u_acc}_{ex_id}_"
-        # Truy vấn các document có ID bắt đầu bằng prefix
         docs = db.collection('notes').where(firestore.FieldPath.document_id(), '>=', prefix).where(firestore.FieldPath.document_id(), '<=', prefix + '\uf8ff').stream()
-        
         for doc in docs:
-            # Cách lấy gid_str chuẩn: Xóa phần prefix trong ID document, phần còn lại chính là g_id
             gid_str = doc.id.replace(prefix, "")
-            # Lưu vào dict: Key là string (ví dụ "1"), Value là nội dung ghi chú
             notes[gid_str] = doc.to_dict().get('content', "")
-            
-        # Debug nhỏ (chỉ hiện trong Logs hệ thống, không hiện lên web)
-        print(f"--- Nạp Note cho {ex_id}: Tìm thấy {len(notes)} ghi chú ---")
-    except Exception as e:
-        print(f"Lỗi nạp ghi chú: {e}")
+    except: pass
     return notes
 
 # --- 5. QUẢN LÝ SESSION & CALLBACKS ---
@@ -116,16 +108,14 @@ def start_lesson_callback(ex, ex_id):
     try:
         df = pd.read_excel(get_drive_url(ex['excel_link']))
         df.columns = [str(c).strip().lower() for c in df.columns]
-        st.session_state.current_df = df
-        st.session_state.current_ex_info = ex
-        st.session_state.current_ex_id = ex_id
+        st.session_state.current_df, st.session_state.current_ex_info, st.session_state.current_ex_id = df, ex, ex_id
         st.session_state.view_mode = 'quiz'
         acc = st.session_state.user['account']
         st.session_state.user_answers = get_draft(acc, ex_id)
         st.session_state.user_notes = get_notes(acc, ex_id)
     except Exception as e: st.error(f"Lỗi nạp bài: {e}")
 
-def start_review_direct_callback(ex, ex_id, history):
+def start_review_direct_callback(ex, ex_id, history): # Đã sửa tham số
     try:
         df = pd.read_excel(get_drive_url(ex['excel_link']))
         df.columns = [str(c).strip().lower() for c in df.columns]
@@ -136,16 +126,16 @@ def start_review_direct_callback(ex, ex_id, history):
         st.session_state.view_mode = 'review'
     except Exception as e: st.error(f"Lỗi nạp Review: {e}")
 
-# --- 6. GIAO DIỆN (SỨC MẠNH CHÍNH) ---
+# --- 6. TRANG CHỦ & ĐIỀU HƯỚNG ---
 def login_page():
     st.markdown('<h1 style="text-align: center;">🔑 Đăng nhập Hệ thống</h1>', unsafe_allow_html=True)
     with st.container(border=True):
-        account = st.text_input("📧 Tài khoản của bạn:")
-        password = st.text_input("🔒 Mật khẩu:", type="password")
+        acc = st.text_input("📧 Tài khoản của bạn:")
+        pwd = st.text_input("🔒 Mật khẩu:", type="password")
         if st.button("Xác nhận", use_container_width=True):
-            user_ref = db.collection('users').document(account).get()
-            if user_ref.exists and str(user_ref.to_dict().get('password')) == password:
-                st.session_state.user = {**user_ref.to_dict(), 'account': account}
+            ref = db.collection('users').document(acc).get()
+            if ref.exists and str(ref.to_dict().get('password')) == pwd:
+                st.session_state.user = {**ref.to_dict(), 'account': acc}
                 st.rerun()
             else: st.error("Sai tài khoản hoặc mật khẩu.")
 
@@ -153,7 +143,6 @@ def teacher_page():
     st.sidebar.button("Đăng xuất", on_click=logout)
     st.title("👨‍🏫 Quản lý Học viên")
     t1, t2, t3 = st.tabs(["📤 Giao bài", "👥 Quản lý", "📊 Thống kê"])
-    # (Giữ nguyên logic Tab 1, 2 của Thầy)
     with t1:
         with st.expander("Giao bài tập mới", expanded=True):
             students = [s.id for s in db.collection('users').where('role', '==', 'student').stream()]
@@ -262,10 +251,7 @@ def student_page():
         for doc in exs_stream:
             ex_data, ex_id = doc.to_dict(), doc.id
             history = [s for s in all_subs if s.get('exercise_title') == ex_data['title']]
-            has_draft = db.collection('drafts').document(f"{u_acc}_{ex_id}").get().exists
-            created_at = ex_data.get('created_at', datetime.min)
-            if hasattr(created_at, 'timestamp'): created_at = created_at.replace(tzinfo=None)
-            ex_list.append({'data': ex_data, 'id': ex_id, 'history': history, 'is_done': len(history) > 0, 'has_draft': has_draft, 'created_at': created_at})
+            ex_list.append({'data': ex_data, 'id': ex_id, 'history': history, 'is_done': len(history) > 0, 'has_draft': db.collection('drafts').document(f"{u_acc}_{ex_id}").get().exists, 'created_at': ex_data.get('created_at', datetime.min)})
 
         sort_opt = st.selectbox("Sắp xếp:", ["Mới nhất", "Ưu tiên chưa làm"], label_visibility="collapsed")
         if sort_opt == "Mới nhất": ex_list.sort(key=lambda x: x['created_at'], reverse=True)
@@ -277,7 +263,7 @@ def student_page():
                 c1, c2 = st.columns([4, 1.5])
                 with c1:
                     st.subheader(f"{ex['type']} - {ex['title']}")
-                    date_str = item['created_at'].strftime("%d/%m/%Y") if item['created_at'] != datetime.min else "N/A"
+                    date_str = item['created_at'].strftime("%d/%m/%Y") if hasattr(item['created_at'], 'strftime') else "N/A"
                     if item['has_draft'] and not item['is_done']: st.warning(f"📅 Giao: `{date_str}` | 🟠 *Đang làm dở - Hệ thống đã lưu bài*")
                     elif history:
                         scs = [int(s.get('score_raw','0/0').split('/')[0]) for s in history]
@@ -286,6 +272,7 @@ def student_page():
                 with c2:
                     st.button("Làm bài ➔", key=f"btn_{ex_id}", on_click=start_lesson_callback, args=(ex, ex_id), use_container_width=True)
                     if history and ex.get('review_permissions', {}).get(u_acc, False):
+                        # Đã sửa: Truyền thêm ex_id vào args
                         st.button("Xem lại 🧐", key=f"rev_{ex_id}", on_click=start_review_direct_callback, args=(ex, ex_id, history), use_container_width=True)
 
     elif st.session_state.view_mode == 'quiz':
@@ -302,26 +289,15 @@ def student_page():
             curr_aud = str(first.get('aud_tmp')).strip()
             if curr_aud != "" and curr_aud != last_aud: display_drive_audio(curr_aud); last_aud = curr_aud
             
-            # --- Ô GHI CHÚ VỊ TRÍ TRÊN CÙNG ---
-            # 1. Lấy note cũ từ session_state (ép g_id về string vì Firebase ID là string)
-            curr_note = st.session_state.user_notes.get(str(g_id), "") 
-            
-            # 2. Gán vào text_area thông qua tham số 'value'
-            note_input = st.text_area(
-                "📝 Ghi chú / Chiến thuật (Tự động lưu):", 
-                value=curr_note, 
-                key=f"note_area_{g_id}", # Key phải duy nhất cho mỗi nhóm
-                height=150
-            )
-            
-            # 3. Nếu học sinh gõ mới, cập nhật ngược lại session_state và Firebase
+            # GHI CHÚ (Đã sửa Key bao gồm ID bài tập để không bị đè)
+            curr_note = st.session_state.user_notes.get(str(g_id), "")
+            note_input = st.text_area("📝 Ghi chú / Chiến thuật (Tự động lưu):", value=curr_note, key=f"note_{st.session_state.current_ex_id}_{g_id}", height=150, max_chars=500)
             if note_input != curr_note:
-                st.session_state.user_notes[str(g_id)] = note_input # Lưu tạm vào session để rerun không bị mất
-                save_note(u_acc, st.session_state.current_ex_id, g_id, note_input) # Lưu vĩnh viễn
-                st.toast("Đã ghi sổ tay!", icon="✍️")
+                st.session_state.user_notes[str(g_id)] = note_input
+                save_note(u_acc, st.session_state.current_ex_id, g_id, note_input)
+                st.toast("Đã ghi sổ tay!", icon="💾")
             
-            ctx = clean_nan(first.get('context'))
-            l, r_col = st.columns([1, 1])
+            ctx, l, r_col = clean_nan(first.get('context')), *st.columns([1, 1])
             with l:
                 with st.container(height=900):
                     for p in ctx.split(";;"):
@@ -354,30 +330,29 @@ def student_page():
         if st.button("QUAY LẠI TRANG CHỦ"): st.session_state.view_mode = 'list'; st.rerun()
 
     elif st.session_state.view_mode == 'review':
-        st.title("🧐 Review đáp án nỏ chi tiết")
+        st.title("🧐 Review đáp án chi tiết")
         if st.button("⬅ Quay lại danh sách"): st.session_state.view_mode = 'list'; st.rerun()
         df = st.session_state.current_df
         df['ctx_tmp'] = df['context'].fillna('').astype(str).str.strip()
         df['aud_tmp'] = df['audio'].fillna('').astype(str).str.strip() if 'audio' in df.columns else ""
         df['group'] = ((df['ctx_tmp'] != df['ctx_tmp'].shift()) | (df['aud_tmp'] != df['aud_tmp'].shift())).cumsum()
         
-        last_audio_review = None
+        last_aud_rev = None
         for g_id, group_df in df.groupby('group'):
             first = group_df.iloc[0]
-            ctx, curr_aud = clean_nan(first.get('context')), str(first.get('aud_tmp')).strip()
-            
-            # --- Ô GHI CHÚ TRONG PHẦN REVIEW ---
+            curr_aud = str(first.get('aud_tmp')).strip()
+            # GHI CHÚ TRONG REVIEW
             curr_note = st.session_state.user_notes.get(str(g_id), "")
-            note_rev = st.text_area("📝 Ghi chú của bạn:", value=curr_note, key=f"note_rev_{g_id}", height=150, max_chars=500)
+            note_rev = st.text_area("📝 Ghi chú của bạn:", value=curr_note, key=f"note_rev_{st.session_state.current_ex_id}_{g_id}", height=150, max_chars=500)
             if note_rev != curr_note:
                 st.session_state.user_notes[str(g_id)] = note_rev
                 save_note(u_acc, st.session_state.current_ex_id, g_id, note_rev)
                 st.toast("Đã cập nhật ghi chú!", icon="💾")
             
-            l_rev, r_rev = st.columns([1, 1])
+            ctx, l_rev, r_rev = clean_nan(first.get('context')), *st.columns([1, 1])
             with l_rev:
                 with st.container(height=900):
-                    if curr_aud != "" and curr_aud != last_audio_review: display_drive_audio(curr_aud); last_audio_review = curr_aud
+                    if curr_aud != "" and curr_aud != last_aud_rev: display_drive_audio(curr_aud); last_aud_rev = curr_aud
                     for p in ctx.split(";;"):
                         if p.strip().startswith("http"): display_drive_image(p.strip())
                         else: st.markdown(f'<div class="context-display">{p.strip()}</div>', unsafe_allow_html=True)
