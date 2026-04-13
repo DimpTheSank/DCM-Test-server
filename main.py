@@ -143,6 +143,8 @@ def start_review_direct_callback(ex, ex_id, history):
             
         st.session_state.view_mode = 'review'
     except Exception as e: st.error(f"Lỗi nạp Review: {e}")
+    test_key = f"note_quiz_{ex_id}_1"
+    st.session_state[test_key] = "ĐÂY LÀ DÒNG CHỮ TEST TỪ CODE - NẾU THẤY LÀ OK!"
 
 # --- 6. ĐIỀU HƯỚNG ---
 def login_page():
