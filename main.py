@@ -187,7 +187,39 @@ def teacher_page():
     t1, t2, t3 = st.tabs(["📤 Giao bài", "👥 Quản lý", "📊 Thống kê"])
     
     # ... (Giữ nguyên Tab 1 và Tab 2 của Thầy) ...
+    with t1:
+        with st.expander("Giao bài tập mới", expanded=True):
+            students = [s.id for s in db.collection('users').where('role', '==', 'student').stream()]
+            title, link = st.text_input("Tiêu đề"), st.text_input("Link Excel")
+            ex_type = st.selectbox("Loại", ["Reading (Part 5,6,7)", "Listening", "Vocab Game"])
+            assigned = st.multiselect("Giao cho:", students)
+            if st.button("🚀 Đăng bài", use_container_width=True):
+                db.collection('exercises').add({'title': title, 'type': ex_type, 'excel_link': link, 'assigned_to': assigned, 'created_at': firestore.SERVER_TIMESTAMP, 'review_permissions': {acc: False for acc in assigned}})
+                st.success("Đã đăng bài!")
 
+    with t2:
+        all_st_ids = [s.id for s in db.collection('users').where('role', '==', 'student').stream()]
+        sel_st = st.selectbox("Chọn học sinh:", ["-- Chọn --"] + all_st_ids)
+        if sel_st != "-- Chọn --":
+            exs = db.collection('exercises').where('assigned_to', 'array_contains', sel_st).stream()
+            for doc in exs:
+                ex, ex_id = doc.to_dict(), doc.id
+                with st.expander(f"📝 {ex['title']}"):
+                    c1, c2, c3 = st.columns([2, 1, 1])
+                    c1.write(f"Loại: {ex['type']}")
+                    perms = ex.get('review_permissions', {})
+                    if c2.toggle("Cho phép Review", value=perms.get(sel_st, False), key=f"rev_{ex_id}_{sel_st}"):
+                        perms[sel_st] = True
+                        db.collection('exercises').document(ex_id).update({'review_permissions': perms})
+                    else:
+                        perms[sel_st] = False
+                        db.collection('exercises').document(ex_id).update({'review_permissions': perms})
+                    if c3.button("🗑️ Xoá bài", key=f"del_{ex_id}_{sel_st}"):
+                        new_a = [acc for acc in ex['assigned_to'] if acc != sel_st]
+                        if not new_a: db.collection('exercises').document(ex_id).delete()
+                        else: db.collection('exercises').document(ex_id).update({'assigned_to': new_a})
+                        st.rerun()
+                        
     with t3:
         all_users = {u.id: u.to_dict().get('full_name', u.id) for u in db.collection('users').stream()}
         chosen = st.multiselect("Chọn nhóm học sinh:", list(all_users.keys()))
