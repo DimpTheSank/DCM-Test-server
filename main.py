@@ -111,10 +111,12 @@ def get_notes(u_acc, ex_id):
     notes = {}
     try:
         prefix = f"{u_acc}_{ex_id}_"
-        docs = db.collection('notes').where(FieldPath.document_id(), '>=', prefix).where(FieldPath.document_id(), '<=', prefix + '\uf8ff').stream()
+        # Sửa FieldPath() thành firestore.FieldPath.document_id()
+        docs = db.collection('notes').where(firestore.FieldPath.document_id(), '>=', prefix).where(firestore.FieldPath.document_id(), '<=', prefix + '\uf8ff').stream()
         for doc in docs:
             gid_str = doc.id.split('_')[-1]
-            if gid_str.isdigit(): notes[int(gid_str)] = doc.to_dict().get('content', "")
+            if gid_str.isdigit():
+                notes[int(gid_str)] = doc.to_dict().get('content', "")
     except: pass
     return notes
 
