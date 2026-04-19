@@ -483,7 +483,13 @@ def student_page():
                 st.session_state.user_notes[gid_str] = note_rev
                 save_note(u_account, st.session_state.current_ex_id, g_id, note_rev)
                 st.toast("Đã cập nhật ghi chú Review!", icon="💾")
-
+                
+            if 'transcript' in df.columns:
+                    ts_content = clean_nan(first.get('transcript'))
+                    if ts_content != " ":
+                        with st.expander("📖 Xem Transcript chung cho nhóm này"):
+                            st.info(ts_content)
+            
             l_rev, r_rev = st.columns([1, 1])
             with l_rev:
                 with st.container(height=900):
