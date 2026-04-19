@@ -27,14 +27,22 @@ st.markdown("""
     .wrong-box { border: 2px solid #dc3545; background-color: #ffebee; padding: 10px; border-radius: 10px; margin-bottom: 5px; }
     .warning-box { border: 2px solid #ffc107; background-color: #fffde7; padding: 10px; border-radius: 10px; margin-bottom: 5px; }
     .normal-box { border: 1px solid #ddd; padding: 10px; border-radius: 10px; margin-bottom: 5px; color: #666; }
-    .transcript-box { white-space: pre-wrap !important; background-color: #f0f7ff; border-left: 5px solid #1565c0; padding: 15px; margin-top: 10px; border-radius: 5px; font-style: italic; color: #0d47a1; }
+    .transcript-box { 
+        white-space: pre-wrap !important; 
+        background-color: #f0f7ff; 
+        border-left: 5px solid #1565c0; 
+        padding: 15px; 
+        margin-top: 10px; 
+        border-radius: 5px; 
+        font-style: italic; 
+        color: #0d47a1;}
     .right-box { 
         border: 2px solid #ffc107; 
         background-color: #fffde7; 
         padding: 10px; 
         border-radius: 10px; 
         margin-bottom: 5px; 
-        color: #856404; /* Chữ màu nâu đậm cho dễ đọc trên nền vàng */
+        color: #856404;} /* Chữ màu nâu đậm cho dễ đọc trên nền vàng */
     .stTextArea textarea { border: 2px solid #1565c0 !important; font-size: 16px !important; border-radius: 10px; background-color: #fcfdff; }
     audio { width: 100%; margin-bottom: 20px; border-radius: 10px; background-color: #f1f3f4; }
 
@@ -345,7 +353,6 @@ def student_page():
     st.title(f"👋 Xin chào, {st.session_state.user.get('full_name', 'Học viên')}!")
     st.divider()
 
-    # --- 2. TRANG DANH SÁCH BÀI TẬP ---
     if st.session_state.view_mode == 'list':
         all_subs = [s.to_dict() for s in db.collection('submissions').where('student_email', '==', u_account).stream()]
         exs_stream = db.collection('exercises').where('assigned_to', 'array_contains', u_account).stream()
@@ -380,7 +387,6 @@ def student_page():
                     if history and ex.get('review_permissions', {}).get(u_account, False):
                         st.button("Xem lại 🧐", key=f"rev_{ex_id}", on_click=start_review_direct_callback, args=(ex, ex_id, history), use_container_width=True)
 
-    # --- 3. TRANG LÀM BÀI (QUIZ) ---
     elif st.session_state.view_mode == 'quiz':
         st.subheader(f"✍️ {st.session_state.current_ex_info['title']}")
         if st.button("⬅ Thoát (Tự động lưu bài)", key="top_exit_quiz"): 
@@ -426,26 +432,16 @@ def student_page():
             st.divider()
 
         if st.button("Nộp bài 🏁", use_container_width=True, type="primary"):
-            # Tính điểm chính xác
             correct = 0
             for i, r in df.iterrows():
                 mapping = {clean_nan(r.get('opt_a')):'A', clean_nan(r.get('opt_b')):'B', clean_nan(r.get('opt_c')):'C', clean_nan(r.get('opt_d')):'D'}
                 if mapping.get(st.session_state.user_answers.get(i)) == str(r.get('correct_ans','')).strip().upper():
                     correct += 1
-            
             st.session_state.res = f"{correct}/{len(df)}"
-            db.collection('submissions').add({
-                'student_email': u_account, 
-                'exercise_title': st.session_state.current_ex_info['title'], 
-                'score_raw': st.session_state.res, 
-                'user_answers': {str(k): v for k, v in st.session_state.user_answers.items()}, 
-                'submitted_at': datetime.now()
-            })
+            db.collection('submissions').add({'student_email':u_account, 'exercise_title':st.session_state.current_ex_info['title'], 'score_raw':st.session_state.res, 'user_answers': {str(k): v for k, v in st.session_state.user_answers.items()}, 'submitted_at':datetime.now()})
             delete_draft(u_account, st.session_state.current_ex_id)
-            st.session_state.view_mode = 'res'
-            st.rerun()
+            st.session_state.view_mode = 'res'; st.rerun()
 
-    # --- 4. TRANG KẾT QUẢ (PHẦN THIẾU CỦA THẦY) ---
     elif st.session_state.view_mode == 'res':
         n, t = map(int, st.session_state.res.split('/'))
         st.balloons()
@@ -461,13 +457,10 @@ def student_page():
             st.divider()
             c1, c2 = st.columns(2)
             if c1.button("XEM LẠI ĐÁP ÁN (REVIEW)", use_container_width=True):
-                st.session_state.view_mode = 'review'
-                st.rerun()
+                st.session_state.view_mode = 'review'; st.rerun()
             if c2.button("QUAY LẠI TRANG CHỦ", use_container_width=True):
-                st.session_state.view_mode = 'list'
-                st.rerun()
+                st.session_state.view_mode = 'list'; st.rerun()
 
-    # --- 5. TRANG REVIEW ĐÁP ÁN ---
     elif st.session_state.view_mode == 'review':
         st.title("🧐 Review đáp án chi tiết")
         if st.button("⬅ Quay lại danh sách", key="top_exit_rev"): 
@@ -498,12 +491,16 @@ def student_page():
                     for p in ctx.split(";;"):
                         if p.strip().startswith("http"): display_drive_image(p.strip())
                         else: st.markdown(f'<div class="context-display">{p.strip()}</div>', unsafe_allow_html=True)
+                    
+                    # --- ĐÃ SỬA: TRANSCRIPT XUỐNG DÒNG ĐƯỢC ---
                     if 'transcript' in df.columns:
                         ts = clean_nan(first.get('transcript'))
                         if ts != " ":
                             st.markdown("---")
                             st.markdown(f"📝 **Audio Transcript:**")
-                            st.caption(ts) # Dùng caption hoặc markdown tùy độ nổi bật thầy muốn
+                            # Dùng class transcript-box đã cấu hình pre-wrap thay vì st.caption
+                            st.markdown(f'<div class="transcript-box">{ts}</div>', unsafe_allow_html=True)
+
             with r_rev:
                 with st.container(height=900):
                     for i, r in group_df.iterrows():
@@ -515,6 +512,7 @@ def student_page():
                             if txt == " " or (let == 'D' and txt.upper() == "NONE"): continue
                             is_correct, is_mine = (let == ck_let), (txt == u_ans)
                             if is_correct and is_mine: st.markdown(f'<div class="correct-box">✅ <b>{let}. {txt}</b> (Bạn chọn đúng)</div>', unsafe_allow_html=True)
+                            # --- ĐÃ SỬA: HIỆN RIGHT-BOX MÀU VÀNG KÈM ICON 🟡 ---
                             elif is_correct: st.markdown(f'<div class="right-box">🟡 <b>{let}. {txt}</b> (Đáp án cần chọn)</div>', unsafe_allow_html=True)
                             elif is_mine: st.markdown(f'<div class="wrong-box">❌ <b>{let}. {txt}</b> (Bạn chọn sai)</div>', unsafe_allow_html=True)
                             else: st.markdown(f'<div class="normal-box">{let}. {txt}</div>', unsafe_allow_html=True)
