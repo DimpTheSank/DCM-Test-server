@@ -27,8 +27,14 @@ st.markdown("""
     .wrong-box { border: 2px solid #dc3545; background-color: #ffebee; padding: 10px; border-radius: 10px; margin-bottom: 5px; }
     .warning-box { border: 2px solid #ffc107; background-color: #fffde7; padding: 10px; border-radius: 10px; margin-bottom: 5px; }
     .normal-box { border: 1px solid #ddd; padding: 10px; border-radius: 10px; margin-bottom: 5px; color: #666; }
-    .transcript-box { background-color: #f0f7ff; border-left: 5px solid #1565c0; padding: 15px; margin-top: 10px; border-radius: 5px; font-style: italic; color: #0d47a1; }
-    
+    .transcript-box { white-space: pre-wrap !important; background-color: #f0f7ff; border-left: 5px solid #1565c0; padding: 15px; margin-top: 10px; border-radius: 5px; font-style: italic; color: #0d47a1; }
+    .right-box { 
+        border: 2px solid #ffc107; 
+        background-color: #fffde7; 
+        padding: 10px; 
+        border-radius: 10px; 
+        margin-bottom: 5px; 
+        color: #856404; /* Chữ màu nâu đậm cho dễ đọc trên nền vàng */
     .stTextArea textarea { border: 2px solid #1565c0 !important; font-size: 16px !important; border-radius: 10px; background-color: #fcfdff; }
     audio { width: 100%; margin-bottom: 20px; border-radius: 10px; background-color: #f1f3f4; }
 
@@ -483,12 +489,6 @@ def student_page():
                 st.session_state.user_notes[gid_str] = note_rev
                 save_note(u_account, st.session_state.current_ex_id, g_id, note_rev)
                 st.toast("Đã cập nhật ghi chú Review!", icon="💾")
-                
-            if 'transcript' in df.columns:
-                    ts_content = clean_nan(first.get('transcript'))
-                    if ts_content != " ":
-                        with st.expander("📖 Xem Transcript chung cho nhóm này"):
-                            st.info(ts_content)
             
             l_rev, r_rev = st.columns([1, 1])
             with l_rev:
@@ -498,6 +498,12 @@ def student_page():
                     for p in ctx.split(";;"):
                         if p.strip().startswith("http"): display_drive_image(p.strip())
                         else: st.markdown(f'<div class="context-display">{p.strip()}</div>', unsafe_allow_html=True)
+                    if 'transcript' in df.columns:
+                        ts = clean_nan(first.get('transcript'))
+                        if ts != " ":
+                            st.markdown("---")
+                            st.markdown(f"📝 **Audio Transcript:**")
+                            st.caption(ts) # Dùng caption hoặc markdown tùy độ nổi bật thầy muốn
             with r_rev:
                 with st.container(height=900):
                     for i, r in group_df.iterrows():
@@ -509,7 +515,7 @@ def student_page():
                             if txt == " " or (let == 'D' and txt.upper() == "NONE"): continue
                             is_correct, is_mine = (let == ck_let), (txt == u_ans)
                             if is_correct and is_mine: st.markdown(f'<div class="correct-box">✅ <b>{let}. {txt}</b> (Bạn chọn đúng)</div>', unsafe_allow_html=True)
-                            elif is_correct: st.markdown(f'<div class="correct-box">🟢 <b>{let}. {txt}</b> (Đáp án đúng)</div>', unsafe_allow_html=True)
+                            elif is_correct: st.markdown(f'<div class="right-box">🟡 <b>{let}. {txt}</b> (Đáp án cần chọn)</div>', unsafe_allow_html=True)
                             elif is_mine: st.markdown(f'<div class="wrong-box">❌ <b>{let}. {txt}</b> (Bạn chọn sai)</div>', unsafe_allow_html=True)
                             else: st.markdown(f'<div class="normal-box">{let}. {txt}</div>', unsafe_allow_html=True)
                         st.write("---")
